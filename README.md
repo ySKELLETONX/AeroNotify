@@ -1,6 +1,6 @@
 # AeroNotify
 
-![AeroNotify Logo](assets/logo.svg)
+![AeroNotify Logo](assets/logo.png)
 
 ## ✈️ Descrição
 
