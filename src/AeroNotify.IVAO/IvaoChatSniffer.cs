@@ -1,58 +1,98 @@
 ﻿using PacketDotNet;
 using SharpPcap;
+using System;
+using System.Linq;
+using System.Net.NetworkInformation;
 using System.Text;
 
 namespace AeroNotify.IVAO
 {
     public class IvaoChatSniffer
     {
-        private ICaptureDevice _device;
+        private static ICaptureDevice? device;
 
-        public void Start()
+        public static void Initialize()
         {
             var devices = CaptureDeviceList.Instance;
 
-            if (devices.Count == 0)
+            if (devices.Count < 1)
             {
-                Console.WriteLine("[IVAO] Nenhuma interface encontrada.");
+                Console.WriteLine("Nenhuma interface de rede encontrada.");
                 return;
             }
 
-            _device = devices[0];
+            var activeNic = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(nic =>
+                    nic.OperationalStatus == OperationalStatus.Up &&
+                    nic.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                    nic.GetIPProperties().GatewayAddresses.Any() &&
+                    !nic.Description.Contains("VPN", StringComparison.OrdinalIgnoreCase) &&
+                    !nic.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase) &&
+                    !nic.Description.Contains("Hamachi", StringComparison.OrdinalIgnoreCase) &&
+                    !nic.Description.Contains("VMware", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(nic => nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                .ThenByDescending(nic => nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
+                .FirstOrDefault();
 
-            Console.WriteLine($"Usando interface: {_device.Description}");
+            if (activeNic == null)
+            {
+                Console.WriteLine("Nenhuma interface Ethernet/Wi-Fi ativa encontrada.");
+                return;
+            }
 
-            // Evento compatível com sua versão
-            _device.OnPacketArrival += new PacketArrivalEventHandler(OnPacketArrival);
+            Console.WriteLine($"Interface de rede ativa detectada: {activeNic.Description}");
 
-            // Modo compatível com sua versão
-            _device.Open(DeviceMode.Promiscuous);
+            device = devices.FirstOrDefault(d => d.Name.Contains(activeNic.Id));
 
-            _device.Filter = "udp port 6809";
+            if (device == null)
+            {
+                Console.WriteLine("Não foi possível casar a interface ativa com o SharpPcap.");
+                return;
+            }
 
-            Console.WriteLine("Capturando pacotes UDP 6809...");
+            device.OnPacketArrival += Device_OnPacketArrival;
+            device.Open();
+            device.Filter = "tcp port 6809";
 
-            _device.StartCapture();
+            Console.WriteLine($"Capturando pacotes na interface: {device.Description}...");
+            device.StartCapture();
         }
 
-        private void OnPacketArrival(object sender, CaptureEventArgs e)
+        public static void Stop()
         {
-            var rawPacket = e.Packet;
+            if (device != null && device.Started)
+            {
+                device.StopCapture();
+                device.Close();
+                Console.WriteLine("Captura encerrada.");
+            }
+        }
 
-            var packet = Packet.ParsePacket(rawPacket.LinkLayerType, rawPacket.Data);
+        private static void Device_OnPacketArrival(object sender, PacketCapture e)
+        {
+            try
+            {
+                var rawPacket = e.GetPacket();
+                var packet = Packet.ParsePacket(rawPacket.LinkLayerType, rawPacket.Data);
+                var tcpPacket = packet.Extract<TcpPacket>();
 
-            var udp = packet.Extract<UdpPacket>();
-            if (udp == null) return;
+                if (tcpPacket != null &&
+                    tcpPacket.PayloadData != null &&
+                    tcpPacket.PayloadData.Length > 0)
+                {
+                    string payload = Encoding.UTF8.GetString(tcpPacket.PayloadData);
 
-            var payload = udp.PayloadData;
-            if (payload == null || payload.Length == 0) return;
-
-            string text = Encoding.UTF8.GetString(payload);
-
-            Console.WriteLine("====== IVAO PACKET ======");
-            Console.WriteLine($"{udp.SourcePort} → {udp.DestinationPort}");
-            Console.WriteLine(text);
-            Console.WriteLine("==========================\n");
+                    if (payload.Contains("#TM") || payload.Contains("#TMSERVER:"))
+                    {
+                        string msg = $"[{DateTime.Now:HH:mm:ss}] {payload.Trim()}";
+                        Console.WriteLine($"[CHAT] {msg}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao processar pacote: {ex.Message}");
+            }
         }
     }
 }
