@@ -9,23 +9,24 @@ namespace AeroNotify
 
         public static Dictionary<string, object> Data { get; private set; } = new();
 
-
         public static void Load()
         {
             if (!File.Exists(FilePath))
             {
-                Save(); 
-                Console.WriteLine("config.json criado com estrutura vazia.");
+                CreateNewConfig();
+                Save();
                 return;
             }
 
             try
             {
                 string json = File.ReadAllText(FilePath);
-                Data = JsonSerializer.Deserialize<Dictionary<string, object>>(json)
-                       ?? new Dictionary<string, object>();
+                var rawData = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
 
-                Console.WriteLine("Configurações carregadas.");
+                if (rawData != null)
+                    Data = ConvertJsonElements(rawData);
+                else
+                    Data = new Dictionary<string, object>();
             }
             catch (Exception ex)
             {
@@ -33,6 +34,10 @@ namespace AeroNotify
             }
         }
 
+        private static void CreateNewConfig()
+        {
+            Add("AeroNotify:Debug", 1);
+        }
 
         public static void Save()
         {
@@ -51,7 +56,6 @@ namespace AeroNotify
             }
         }
 
-
         public static void Add(string path, object value)
         {
             SetValue(path, value);
@@ -68,7 +72,6 @@ namespace AeroNotify
             }
         }
 
-
         private static void SetValue(string path, object value)
         {
             var parts = path.Split(':');
@@ -76,7 +79,7 @@ namespace AeroNotify
 
             for (int i = 0; i < parts.Length - 1; i++)
             {
-                if (!current.ContainsKey(parts[i]))
+                if (!current.ContainsKey(parts[i]) || current[parts[i]] is not Dictionary<string, object>)
                     current[parts[i]] = new Dictionary<string, object>();
 
                 current = (Dictionary<string, object>)current[parts[i]];
@@ -85,7 +88,6 @@ namespace AeroNotify
             current[parts[^1]] = value;
         }
 
-
         private static bool RemoveValue(string path)
         {
             var parts = path.Split(':');
@@ -93,7 +95,7 @@ namespace AeroNotify
 
             for (int i = 0; i < parts.Length - 1; i++)
             {
-                if (!current.ContainsKey(parts[i]))
+                if (!current.ContainsKey(parts[i]) || current[parts[i]] is not Dictionary<string, object>)
                     return false;
 
                 current = (Dictionary<string, object>)current[parts[i]];
@@ -102,7 +104,6 @@ namespace AeroNotify
             return current.Remove(parts[^1]);
         }
 
-
         public static object? Get(string path)
         {
             var parts = path.Split(':');
@@ -110,7 +111,7 @@ namespace AeroNotify
 
             for (int i = 0; i < parts.Length - 1; i++)
             {
-                if (!current.ContainsKey(parts[i]))
+                if (!current.ContainsKey(parts[i]) || current[parts[i]] is not Dictionary<string, object>)
                     return null;
 
                 current = (Dictionary<string, object>)current[parts[i]];
@@ -118,6 +119,46 @@ namespace AeroNotify
 
             current.TryGetValue(parts[^1], out object? value);
             return value;
+        }
+
+        private static Dictionary<string, object> ConvertJsonElements(Dictionary<string, object> dict)
+        {
+            var converted = new Dictionary<string, object>();
+
+            foreach (var item in dict)
+            {
+                if (item.Value is JsonElement jsonElement)
+                {
+                    converted[item.Key] = ConvertElement(jsonElement);
+                }
+                else
+                {
+                    converted[item.Key] = item.Value;
+                }
+            }
+
+            return converted;
+        }
+
+        private static object ConvertElement(JsonElement element)
+        {
+            return element.ValueKind switch
+            {
+                JsonValueKind.Object => ConvertJsonElements(
+                    JsonSerializer.Deserialize<Dictionary<string, object>>(element.GetRawText())!
+                ),
+
+                JsonValueKind.Array => element.EnumerateArray()
+                    .Select(e => ConvertElement(e))
+                    .ToList(),
+
+                JsonValueKind.String => element.GetString()!,
+                JsonValueKind.Number => element.TryGetInt64(out long l) ? l : element.GetDouble(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null!,
+                _ => element.GetRawText()
+            };
         }
     }
 }

@@ -1,23 +1,33 @@
-﻿using System.Text;
+﻿using System;
+using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace AeroNotify
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
+        [DllImport("kernel32.dll")]
+        private static extern bool AllocConsole();
+
+        [DllImport("kernel32.dll")]
+        private static extern bool FreeConsole();
+
         public MainWindow()
         {
+            ConfigService.Load();
+
+            var debugValue = Convert.ToInt32(ConfigService.Get("AeroNotify:Debug"));
+
+            if (debugValue == 1)
+            {
+                AllocConsole();
+                Console.WriteLine("Modo Debug Ativado");
+            }
+            else
+            {
+                FreeConsole();
+            }
+
             InitializeComponent();
         }
     }
