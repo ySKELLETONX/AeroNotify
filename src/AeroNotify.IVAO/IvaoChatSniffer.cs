@@ -13,49 +13,55 @@ namespace AeroNotify.IVAO
 
         public static void Initialize()
         {
-            var devices = CaptureDeviceList.Instance;
-
-            if (devices.Count < 1)
+            try
             {
-                Console.WriteLine("Nenhuma interface de rede encontrada.");
-                return;
-            }
+                var devices = CaptureDeviceList.Instance;
 
-            var activeNic = NetworkInterface.GetAllNetworkInterfaces()
-                .Where(nic =>
-                    nic.OperationalStatus == OperationalStatus.Up &&
-                    nic.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
-                    nic.GetIPProperties().GatewayAddresses.Any() &&
-                    !nic.Description.Contains("VPN", StringComparison.OrdinalIgnoreCase) &&
-                    !nic.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase) &&
-                    !nic.Description.Contains("Hamachi", StringComparison.OrdinalIgnoreCase) &&
-                    !nic.Description.Contains("VMware", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(nic => nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
-                .ThenByDescending(nic => nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
-                .FirstOrDefault();
+                if (devices.Count < 1)
+                {
+                    Console.WriteLine("Nenhuma interface de rede encontrada.");
+                    return;
+                }
 
-            if (activeNic == null)
+                var activeNic = NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(nic =>
+                        nic.OperationalStatus == OperationalStatus.Up &&
+                        nic.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                        nic.GetIPProperties().GatewayAddresses.Any() &&
+                        !nic.Description.Contains("VPN", StringComparison.OrdinalIgnoreCase) &&
+                        !nic.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase) &&
+                        !nic.Description.Contains("Hamachi", StringComparison.OrdinalIgnoreCase) &&
+                        !nic.Description.Contains("VMware", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(nic => nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                    .ThenByDescending(nic => nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
+                    .FirstOrDefault();
+
+                if (activeNic == null)
+                {
+                    Console.WriteLine("Nenhuma interface Ethernet/Wi-Fi ativa encontrada.");
+                    return;
+                }
+
+                Console.WriteLine($"Interface de rede ativa detectada: {activeNic.Description}");
+
+                device = devices.FirstOrDefault(d => d.Name.Contains(activeNic.Id));
+
+                if (device == null)
+                {
+                    Console.WriteLine("Não foi possível casar a interface ativa com o SharpPcap.");
+                    return;
+                }
+
+                device.OnPacketArrival += Device_OnPacketArrival;
+                device.Open();
+                device.Filter = "tcp port 6809";
+
+                Console.WriteLine($"Capturando pacotes na interface: {device.Description}...");
+                device.StartCapture();
+            }catch(Exception e)
             {
-                Console.WriteLine("Nenhuma interface Ethernet/Wi-Fi ativa encontrada.");
-                return;
+                Console.WriteLine(e);
             }
-
-            Console.WriteLine($"Interface de rede ativa detectada: {activeNic.Description}");
-
-            device = devices.FirstOrDefault(d => d.Name.Contains(activeNic.Id));
-
-            if (device == null)
-            {
-                Console.WriteLine("Não foi possível casar a interface ativa com o SharpPcap.");
-                return;
-            }
-
-            device.OnPacketArrival += Device_OnPacketArrival;
-            device.Open();
-            device.Filter = "tcp port 6809";
-
-            Console.WriteLine($"Capturando pacotes na interface: {device.Description}...");
-            device.StartCapture();
         }
 
         public static void Stop()

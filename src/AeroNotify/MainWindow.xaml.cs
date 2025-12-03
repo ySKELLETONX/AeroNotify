@@ -2,6 +2,8 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 
+using AeroNotify.IVAO;
+
 namespace AeroNotify
 {
     public partial class MainWindow : Window
@@ -15,6 +17,8 @@ namespace AeroNotify
         public MainWindow()
         {
             ConfigService.Load();
+
+            IvaoChatSniffer.Initialize();
 
             var debugValue = Convert.ToInt32(ConfigService.Get("AeroNotify:Debug"));
 
